@@ -33,6 +33,7 @@ api.interceptors.response.use(
 // Agent API
 export const agentAPI = {
   getTemplates: () => api.get('/agent/templates'),
+  getProviders: () => api.get('/agent/providers'),
   create: (data) => api.post('/agent/create', data),
   list: () => api.get('/agent/list'),
   get: (id) => api.get(`/agent/${id}`),
@@ -83,6 +84,20 @@ export const callHistoryAPI = {
   list: () => api.get('/call-history/list'),
   save: (data) => api.post('/call-history/save', data),
   get: (id) => api.get(`/call-history/${id}`)
+};
+
+// Test API
+export const testAPI = {
+  testLLM: (data) => api.post('/test/llm', data),
+  testTTS: (data) => api.post('/test/tts', data),
+  testASR: (data) => api.post('/test/asr', data),
+  getProviders: () => api.get('/test/providers')
+};
+
+// Conversation API
+export const conversationAPI = {
+  chat: (data) => api.post('/conversation/chat', data),
+  voicePreview: (data) => api.post('/conversation/voice-preview', data, { responseType: 'blob' })
 };
 
 export default api;

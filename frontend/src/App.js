@@ -13,6 +13,9 @@ import KnowledgeBases from './pages/KnowledgeBases';
 import Integrations from './pages/Integrations';
 import CallHistory from './pages/CallHistory';
 import Settings from './pages/Settings';
+import TestProviders from './pages/TestProviders';
+import ChatTest from './pages/ChatTest';
+import LLMTest from './pages/LLMTest';
 
 function AppRoutes() {
   const { user, loading } = useAuth();
@@ -43,6 +46,9 @@ function AppRoutes() {
         <Route path="/analytics" element={<Analytics />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/api-integration" element={<APIIntegration />} />
+        <Route path="/test-providers" element={<TestProviders />} />
+        <Route path="/chat-test" element={<ChatTest />} />
+        <Route path="/llm-test" element={<LLMTest />} />
       </Routes>
     </Layout>
   );

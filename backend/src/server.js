@@ -9,6 +9,8 @@ const webhookRoutes = require('./routes/webhooks');
 const knowledgeRoutes = require('./routes/knowledge');
 const integrationRoutes = require('./routes/integrations');
 const callHistoryRoutes = require('./routes/callHistory');
+const testRoutes = require('./routes/test');
+const conversationRoutes = require('./routes/conversation');
 const { setupWebRTC } = require('./routes/webrtc');
 
 dotenv.config();
@@ -41,6 +43,8 @@ app.use('/api/webhook', webhookRoutes);
 app.use('/api/knowledge', knowledgeRoutes);
 app.use('/api/integrations', integrationRoutes);
 app.use('/api/call-history', callHistoryRoutes);
+app.use('/api/test', testRoutes);
+app.use('/api/conversation', conversationRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
@@ -50,8 +54,11 @@ app.get('/health', (req, res) => {
 const server = http.createServer(app);
 setupWebRTC(server);
 
+const { checkProviderStatus } = require('./utils/providerStatus');
+
 server.listen(PORT, () => {
   console.log(`Bolna Backend running on port ${PORT}`);
+  checkProviderStatus();
 });
 
 module.exports = app;

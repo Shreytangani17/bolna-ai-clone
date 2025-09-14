@@ -6,19 +6,56 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
-import { agentAPI } from '../services/api';
+import { agentAPI, conversationAPI } from '../services/api';
 import toast from 'react-hot-toast';
 
 const AGENT_TYPES = ['conversational', 'sales', 'support', 'appointment', 'survey'];
-const VOICES = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'];
-const LANGUAGES = ['en', 'es', 'fr', 'de', 'it', 'pt', 'hi', 'ja', 'ko', 'zh'];
 
 const PROVIDERS = {
   telephony: ['twilio', 'plivo', 'vonage'],
-  llm: ['openai', 'anthropic', 'cohere'],
-  tts: ['openai', 'elevenlabs', 'azure'],
+  llm: ['openai', 'anthropic', 'gemini', 'mistral', 'groq', 'openrouter', 'meta'],
+  tts: ['openai', 'elevenlabs', 'azure', 'sarvam'],
   asr: ['deepgram', 'whisper', 'azure']
 };
+
+const LLM_MODELS = {
+  openai: ['gpt-4', 'gpt-4-turbo', 'gpt-3.5-turbo'],
+  anthropic: ['claude-3-opus', 'claude-3-sonnet', 'claude-3-haiku'],
+  gemini: ['gemini-pro', 'gemini-pro-vision'],
+  mistral: ['mistral-large', 'mistral-medium', 'mistral-small'],
+  groq: ['llama2-70b-4096', 'mixtral-8x7b-32768'],
+  openrouter: [
+    'openai/gpt-4-turbo',
+    'openai/gpt-3.5-turbo',
+    'google/gemini-pro',
+    'x-ai/grok-beta',
+    'anthropic/claude-3-sonnet'
+  ],
+  meta: ['llama-2-70b', 'llama-2-13b', 'llama-2-7b']
+};
+
+const VOICES = {
+  openai: ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'],
+  elevenlabs: ['Rachel', 'Domi', 'Bella', 'Antoni', 'Elli', 'Josh'],
+  azure: ['en-US-JennyNeural', 'en-US-GuyNeural', 'en-US-AriaNeural'],
+  sarvam: ['meera', 'aditi', 'arjun', 'kavya']
+};
+
+const LANGUAGES = [
+  { code: 'en', name: 'English' },
+  { code: 'es', name: 'Spanish' },
+  { code: 'fr', name: 'French' },
+  { code: 'de', name: 'German' },
+  { code: 'it', name: 'Italian' },
+  { code: 'pt', name: 'Portuguese' },
+  { code: 'hi', name: 'Hindi (हिंदी)' },
+  { code: 'ja', name: 'Japanese' },
+  { code: 'ko', name: 'Korean' },
+  { code: 'zh', name: 'Chinese' },
+  { code: 'multilingual', name: 'Multilingual' },
+  { code: 'hi-IN', name: 'Hindi India' },
+  { code: 'en-IN', name: 'English India' }
+];
 
 function CreateAgent() {
   const navigate = useNavigate();
@@ -32,6 +69,7 @@ function CreateAgent() {
     prompt: '',
     voice: 'alloy',
     language: 'en',
+    model: 'gpt-3.5-turbo',
     providers: {
       telephony: 'twilio',
       llm: 'openai',
@@ -111,6 +149,74 @@ function CreateAgent() {
     toast.success(`Test call initiated to ${testPhone}`);
     setTestCallOpen(false);
     setTestPhone('');
+  };
+
+  const handleVoicePreview = async () => {
+    const text = formData.welcomeMessage || (formData.language === 'hi' ? 'नमस्ते, यह आवाज़ का परीक्षण है।' : 'Hello, this is a voice preview test.');
+    const provider = formData.providers?.tts || 'openai';
+    
+    try {
+      if (provider === 'sarvam') {
+        toast.loading('Generating Sarvam AI voice...');
+        
+        const response = await conversationAPI.voicePreview({
+          text: text,
+          voice: formData.voice,
+          provider: provider,
+          language: formData.language
+        });
+        
+        const audioUrl = URL.createObjectURL(response.data);
+        const audio = new Audio(audioUrl);
+        
+        audio.onloadeddata = () => {
+          toast.dismiss();
+          toast.success(`Playing ${formData.voice} voice (Sarvam AI)`);
+          audio.play();
+        };
+        
+        audio.onerror = () => {
+          toast.dismiss();
+          toast.error('Sarvam AI voice preview failed');
+        };
+        
+      } else {
+        // Use browser speech synthesis for other providers
+        window.speechSynthesis.cancel();
+        
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = 0.9;
+        utterance.pitch = 1.0;
+        utterance.volume = 1.0;
+        
+        if (formData.language === 'hi') {
+          utterance.lang = 'hi-IN';
+        }
+        
+        const voices = window.speechSynthesis.getVoices();
+        const preferredVoice = voices.find(voice => 
+          voice.lang.startsWith(formData.language === 'hi' ? 'hi' : 'en')
+        );
+        
+        if (preferredVoice) {
+          utterance.voice = preferredVoice;
+        }
+        
+        utterance.onstart = () => {
+          toast.success(`Playing voice preview`);
+        };
+        
+        utterance.onerror = () => {
+          toast.error('Voice preview failed');
+        };
+        
+        window.speechSynthesis.speak(utterance);
+      }
+      
+    } catch (error) {
+      toast.dismiss();
+      toast.error('Voice preview failed: ' + error.message);
+    }
   };
 
   return (
@@ -239,12 +345,11 @@ function CreateAgent() {
                       onChange={(e) => setFormData({...formData, language: e.target.value})}
                       className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
                     >
-                      <option value="en">English</option>
-                      <option value="es">Spanish</option>
-                      <option value="fr">French</option>
-                      <option value="de">German</option>
-                      <option value="hi">Hindi</option>
-                      <option value="multilingual">Multilingual</option>
+                      {LANGUAGES.map(lang => (
+                        <option key={lang.code} value={lang.code}>
+                          {lang.name}
+                        </option>
+                      ))}
                     </select>
                   </div>
                   <div>
@@ -296,23 +401,36 @@ function CreateAgent() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">Model Provider</label>
                     <select
                       value={formData.providers?.llm || 'openai'}
-                      onChange={(e) => setFormData({
-                        ...formData,
-                        providers: { ...formData.providers, llm: e.target.value }
-                      })}
+                      onChange={(e) => {
+                        const provider = e.target.value;
+                        const defaultModel = LLM_MODELS[provider]?.[0] || 'gpt-3.5-turbo';
+                        setFormData({
+                          ...formData,
+                          providers: { ...formData.providers, llm: provider },
+                          model: defaultModel
+                        });
+                      }}
                       className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
                     >
                       <option value="openai">OpenAI GPT</option>
                       <option value="anthropic">Anthropic Claude</option>
-                      <option value="grok">Grok</option>
+                      <option value="gemini">Google Gemini</option>
+                      <option value="mistral">Mistral AI</option>
+                      <option value="groq">Groq</option>
+                      <option value="openrouter">OpenRouter (Multi-Model)</option>
+                      <option value="meta">Meta Llama</option>
                     </select>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Model</label>
-                    <select className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm">
-                      <option>gpt-4-turbo</option>
-                      <option>gpt-3.5-turbo</option>
-                      <option>claude-3-sonnet</option>
+                    <select
+                      value={formData.model}
+                      onChange={(e) => setFormData({...formData, model: e.target.value})}
+                      className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                    >
+                      {(LLM_MODELS[formData.providers?.llm] || LLM_MODELS.openai).map(model => (
+                        <option key={model} value={model}>{model}</option>
+                      ))}
                     </select>
                   </div>
                 </div>
@@ -350,15 +468,21 @@ function CreateAgent() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">TTS Provider</label>
                     <select
                       value={formData.providers?.tts || 'openai'}
-                      onChange={(e) => setFormData({
-                        ...formData,
-                        providers: { ...formData.providers, tts: e.target.value }
-                      })}
+                      onChange={(e) => {
+                        const provider = e.target.value;
+                        const defaultVoice = VOICES[provider]?.[0] || 'alloy';
+                        setFormData({
+                          ...formData,
+                          providers: { ...formData.providers, tts: provider },
+                          voice: defaultVoice
+                        });
+                      }}
                       className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
                     >
                       <option value="openai">OpenAI TTS</option>
                       <option value="elevenlabs">ElevenLabs</option>
                       <option value="azure">Azure Speech</option>
+                      <option value="sarvam">Sarvam AI (Indian)</option>
                     </select>
                   </div>
                   <div>
@@ -368,7 +492,7 @@ function CreateAgent() {
                       onChange={(e) => setFormData({...formData, voice: e.target.value})}
                       className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
                     >
-                      {VOICES.map(voice => (
+                      {(VOICES[formData.providers?.tts] || VOICES.openai).map(voice => (
                         <option key={voice} value={voice} className="capitalize">
                           {voice}
                         </option>
@@ -392,21 +516,86 @@ function CreateAgent() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Latency Mode</label>
-                    <select className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm">
+                    <select 
+                      value={formData.settings?.latencyMode || 'balanced'}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        settings: { ...formData.settings, latencyMode: e.target.value }
+                      })}
+                      className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                    >
                       <option value="low">Low Latency</option>
                       <option value="balanced">Balanced</option>
                       <option value="quality">High Quality</option>
                     </select>
                   </div>
                 </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Voice Test</label>
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      className="w-full"
+                      onClick={handleVoicePreview}
+                    >
+                      <PlayIcon className="h-4 w-4 mr-2" />
+                      Preview Voice
+                    </Button>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Speed</label>
+                    <select 
+                      value={formData.settings?.speechSpeed || '1.0'}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        settings: { ...formData.settings, speechSpeed: e.target.value }
+                      })}
+                      className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                    >
+                      <option value="0.75">0.75x (Slow)</option>
+                      <option value="1.0">1.0x (Normal)</option>
+                      <option value="1.25">1.25x (Fast)</option>
+                      <option value="1.5">1.5x (Very Fast)</option>
+                    </select>
+                  </div>
+                </div>
                 <div className="space-y-3">
                   <label className="flex items-center">
-                    <input type="checkbox" className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                    <input 
+                      type="checkbox" 
+                      checked={formData.settings?.voiceCloning || false}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        settings: { ...formData.settings, voiceCloning: e.target.checked }
+                      })}
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" 
+                    />
                     <span className="ml-2 text-sm text-gray-700">Enable voice cloning</span>
                   </label>
                   <label className="flex items-center">
-                    <input type="checkbox" defaultChecked className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                    <input 
+                      type="checkbox" 
+                      checked={formData.settings?.interruptible !== false}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        settings: { ...formData.settings, interruptible: e.target.checked }
+                      })}
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" 
+                    />
                     <span className="ml-2 text-sm text-gray-700">Allow interruptions</span>
+                  </label>
+                  <label className="flex items-center">
+                    <input 
+                      type="checkbox" 
+                      checked={formData.settings?.backgroundNoise || false}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        settings: { ...formData.settings, backgroundNoise: e.target.checked }
+                      })}
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" 
+                    />
+                    <span className="ml-2 text-sm text-gray-700">Add background noise reduction</span>
                   </label>
                 </div>
               </CardContent>

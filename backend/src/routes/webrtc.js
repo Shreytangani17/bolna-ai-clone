@@ -19,35 +19,51 @@ const setupWebRTC = (server) => {
     console.log(`WebRTC connection established for agent: ${agentId}`);
     
     // Get agent from persistent storage
-    let agent = agents.get(agentId) || agents.get(parseInt(agentId));
+    let agent = agents.get(agentId);
+    if (!agent) {
+      // Try to get from agents route
+      try {
+        const { agents: agentsFromRoute } = require('./agents');
+        agent = agentsFromRoute.get(agentId);
+      } catch (e) {}
+    }
+    
     if (!agent) {
       // Fallback agent for testing
       agent = {
         id: agentId,
-        name: 'Test Agent',
-        type: 'conversational',
+        name: 'Customer Service Rep',
+        type: 'support',
         voice: 'alloy',
-        description: 'A helpful AI assistant.',
-        welcomeMessage: 'Hello! How can I help you today?',
-        prompt: 'You are a helpful AI assistant.'
+        language: 'en',
+        description: 'A friendly customer service representative',
+        welcomeMessage: 'Hi! Thanks for calling. How can I help you today?',
+        prompt: 'You are a friendly customer service representative. Answer questions about services, pricing, and help customers. Be helpful and professional.',
+        providers: { llm: 'openrouter', tts: 'openai' },
+        model: 'openai/gpt-3.5-turbo'
       };
     }
+    
+    console.log('Using agent:', agent.name, 'with prompt:', agent.prompt);
 
     // Send welcome message
     const welcomeText = agent.welcomeMessage || 'Hello! How can I help you today?';
     
-    ws.send(JSON.stringify({
-      type: 'transcript',
-      speaker: 'ai',
-      text: welcomeText
-    }));
-    
     setTimeout(() => {
       ws.send(JSON.stringify({
-        type: 'speak',
+        type: 'transcript',
+        speaker: 'ai',
         text: welcomeText
       }));
-    }, 500);
+      
+      ws.send(JSON.stringify({
+        type: 'speak',
+        text: welcomeText,
+        voice: agent.voice || 'alloy',
+        language: agent.language || 'en',
+        provider: agent.providers?.tts || 'openai'
+      }));
+    }, 1000);
     
     let conversationHistory = [];
     let isProcessing = false;
@@ -58,17 +74,25 @@ const setupWebRTC = (server) => {
         
         if (data.type === 'audio' && !isProcessing) {
           isProcessing = true;
+          console.log('Received audio data, processing...');
           await processAudioChunk(ws, data.data, agent, conversationHistory);
           isProcessing = false;
         }
         
         if (data.type === 'text') {
-          // Handle direct text input for testing
           if (!isProcessing) {
             isProcessing = true;
+            console.log('Received text input:', data.text);
             await processTextInput(ws, data.text, agent, conversationHistory);
             isProcessing = false;
           }
+        }
+        
+        if (data.type === 'speech_ended') {
+          // AI finished speaking, ready for user input
+          ws.send(JSON.stringify({
+            type: 'ready'
+          }));
         }
       } catch (error) {
         console.error('WebSocket message error:', error);
@@ -83,15 +107,26 @@ const setupWebRTC = (server) => {
 
   const processAudioChunk = async (ws, audioData, agent, conversationHistory) => {
     try {
-      console.log('Processing audio chunk');
+      console.log('=== PROCESSING REAL AUDIO ===');
+      console.log('Audio chunk size:', audioData.length);
+      console.log('Agent language:', agent.language);
+      console.log('ASR provider:', agent.providers?.asr || 'deepgram');
       
-      // Transcribe audio using LLM service
-      const audioBuffer = Buffer.from(audioData);
-      const transcript = await llmService.transcribeAudio(audioBuffer);
+      // FORCE REAL TRANSCRIPTION - NO MOCK DATA
+      let transcript = null;
+      try {
+        const audioBuffer = Buffer.from(audioData);
+        transcript = await llmService.transcribeAudio(audioBuffer, agent.providers?.asr || 'deepgram', agent.language || 'en');
+        console.log('REAL TRANSCRIPT:', transcript);
+      } catch (error) {
+        console.error('TRANSCRIPTION FAILED:', error);
+        transcript = `[TRANSCRIPTION ERROR] ${error.message}`;
+      }
       
+      // If no transcript, show the error clearly
       if (!transcript || transcript.trim() === '') {
-        console.log('No transcript generated');
-        return;
+        transcript = '[NO AUDIO DETECTED] Please speak louder or check microphone';
+        console.log('NO TRANSCRIPT GENERATED');
       }
       
       await processTextInput(ws, transcript, agent, conversationHistory);
@@ -103,7 +138,7 @@ const setupWebRTC = (server) => {
   
   const processTextInput = async (ws, text, agent, conversationHistory) => {
     try {
-      console.log('Processing text:', text);
+      console.log('Processing text:', text, 'for agent:', agent.name);
 
       // Send user transcript
       ws.send(JSON.stringify({
@@ -115,9 +150,35 @@ const setupWebRTC = (server) => {
       // Add to conversation history
       conversationHistory.push({ role: 'user', content: text });
 
-      // Generate AI response
-      const aiResponse = await llmService.generateResponse(text, agent, conversationHistory);
-      console.log('AI Response:', aiResponse);
+      // Create proper agent object for LLM with phone call context
+      const agentForLLM = {
+        name: agent.name || 'Phone Assistant',
+        prompt: agent.prompt || 'You are a helpful phone assistant.',
+        description: agent.description || 'A professional phone assistant',
+        language: agent.language || 'en',
+        type: agent.type || 'support',
+        providers: agent.providers || { llm: 'openrouter' },
+        model: agent.model || 'openai/gpt-3.5-turbo'
+      };
+      
+      console.log('Using LLM provider:', agentForLLM.providers.llm, 'model:', agentForLLM.model);
+
+      // Generate AI response using agent's prompt - FORCE REAL LLM USAGE
+      let aiResponse;
+      try {
+        console.log('FORCING REAL LLM CALL - NO FALLBACKS');
+        aiResponse = await llmService.generateResponse(text, agentForLLM, conversationHistory);
+        console.log('REAL AI Response:', aiResponse);
+        
+        if (!aiResponse || aiResponse.trim() === '') {
+          throw new Error('Empty response from LLM');
+        }
+      } catch (error) {
+        console.error('LLM FAILED - MUST FIX:', error.message);
+        
+        // Only use fallback if absolutely necessary and make it obvious
+        aiResponse = `[FALLBACK] I'm having technical difficulties. The error was: ${error.message}. Please try again.`;
+      }
       
       // Add AI response to history
       conversationHistory.push({ role: 'assistant', content: aiResponse });
@@ -129,16 +190,34 @@ const setupWebRTC = (server) => {
         text: aiResponse
       }));
 
-      // Send TTS command
-      setTimeout(() => {
-        ws.send(JSON.stringify({
-          type: 'speak',
-          text: aiResponse
-        }));
-      }, 300);
+      // Send TTS command with voice and language settings
+      ws.send(JSON.stringify({
+        type: 'speak',
+        text: aiResponse,
+        voice: agent.voice || 'alloy',
+        language: agent.language || 'en',
+        provider: agent.providers?.tts || 'openai'
+      }));
 
     } catch (error) {
-      console.error('Text processing error:', error);
+      console.error('CRITICAL TEXT PROCESSING ERROR:', error);
+      
+      // Send error details for debugging
+      const errorResponse = `[ERROR] System failure: ${error.message}. Check backend logs.`;
+      
+      ws.send(JSON.stringify({
+        type: 'transcript',
+        speaker: 'ai',
+        text: errorResponse
+      }));
+      
+      ws.send(JSON.stringify({
+        type: 'speak',
+        text: 'System error occurred. Please check the logs.',
+        voice: agent.voice || 'alloy',
+        language: agent.language || 'en',
+        provider: agent.providers?.tts || 'openai'
+      }));
     }
   };
 

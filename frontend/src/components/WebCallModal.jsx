@@ -55,8 +55,9 @@ const WebCallModal = ({ isOpen, onClose, agent }) => {
           timestamp: new Date().toLocaleTimeString()
         }]);
         
-        // If it's AI speaking, stop recording to prevent echo
+        // Stop recording when AI starts speaking to prevent echo
         if (data.speaker === 'ai' && isRecording) {
+          console.log('AI speaking, stopping recording to prevent echo');
           try {
             mediaRecorderRef.current.stop();
           } catch (e) {
@@ -80,8 +81,13 @@ const WebCallModal = ({ isOpen, onClose, agent }) => {
       }
       
       if (data.type === 'speak') {
-        // Use browser TTS for AI responses
-        speakText(data.text);
+        // Use browser TTS with voice and language settings
+        speakText(data.text, data.voice, data.language, data.provider);
+      }
+      
+      if (data.type === 'ready') {
+        // AI finished speaking, ready for user input
+        setWelcomePlaying(false);
       }
     };
   };
@@ -128,6 +134,9 @@ const WebCallModal = ({ isOpen, onClose, agent }) => {
         
         if (audioChunks.length > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
           const audioBlob = new Blob(audioChunks);
+          console.log('Audio blob size:', audioBlob.size);
+          
+          // Send audio data to backend
           const reader = new FileReader();
           reader.onload = () => {
             const audioData = Array.from(new Uint8Array(reader.result));
@@ -138,6 +147,8 @@ const WebCallModal = ({ isOpen, onClose, agent }) => {
             }));
           };
           reader.readAsArrayBuffer(audioBlob);
+        } else {
+          console.log('No audio data to send or WebSocket not ready');
         }
         audioChunks = [];
       };
@@ -179,24 +190,36 @@ const WebCallModal = ({ isOpen, onClose, agent }) => {
   };
 
   const toggleRecording = () => {
-    if (!mediaRecorderRef.current || welcomePlaying) return;
+    if (!mediaRecorderRef.current || welcomePlaying) {
+      console.log('Cannot record: no recorder or AI speaking');
+      return;
+    }
     
     if (isRecording) {
-      console.log('Stopping recording');
-      mediaRecorderRef.current.stop();
+      console.log('Stopping recording manually');
+      try {
+        mediaRecorderRef.current.stop();
+      } catch (e) {
+        console.log('MediaRecorder already stopped');
+      }
       setIsRecording(false);
     } else {
       console.log('Starting recording');
-      mediaRecorderRef.current.start();
-      setIsRecording(true);
-      
-      // Auto-stop after 5 seconds
-      setTimeout(() => {
-        if (isRecording && mediaRecorderRef.current?.state === 'recording') {
-          mediaRecorderRef.current.stop();
-          setIsRecording(false);
-        }
-      }, 5000);
+      try {
+        mediaRecorderRef.current.start(1000); // Collect data every second
+        setIsRecording(true);
+        
+        // Auto-stop after 3 seconds for better UX
+        setTimeout(() => {
+          if (mediaRecorderRef.current?.state === 'recording') {
+            console.log('Auto-stopping recording after 3 seconds');
+            mediaRecorderRef.current.stop();
+          }
+        }, 3000);
+      } catch (e) {
+        console.error('Failed to start recording:', e);
+        setIsRecording(false);
+      }
     }
   };
 
@@ -254,7 +277,7 @@ const WebCallModal = ({ isOpen, onClose, agent }) => {
     }
   };
   
-  const speakText = (text) => {
+  const speakText = (text, voiceName = 'alloy', language = 'en', provider = 'openai') => {
     try {
       // Stop any ongoing speech
       window.speechSynthesis.cancel();
@@ -264,16 +287,58 @@ const WebCallModal = ({ isOpen, onClose, agent }) => {
       utterance.pitch = 1.0;
       utterance.volume = 1.0;
       
-      // Find a good voice
+      // Map language codes to browser language codes
+      const langMap = {
+        'en': 'en-US',
+        'hi': 'hi-IN',
+        'hi-IN': 'hi-IN',
+        'en-IN': 'en-IN', 
+        'es': 'es-ES',
+        'fr': 'fr-FR',
+        'de': 'de-DE'
+      };
+      
+      // For Sarvam AI, use actual API instead of browser TTS
+      if (provider === 'sarvam') {
+        console.log('Sarvam AI TTS - using API instead of browser TTS');
+        // TODO: Implement Sarvam audio playback
+        return;
+      }
+      
+      // Set language for browser TTS
+      if (language === 'hi' || language === 'hi-IN') {
+        utterance.lang = 'hi-IN';
+        console.log('Set TTS language to Hindi');
+      } else if (language === 'en-IN') {
+        utterance.lang = 'en-IN';
+        console.log('Set TTS language to Indian English');
+      } else {
+        utterance.lang = langMap[language] || 'en-US';
+      }
+      
+      utterance.lang = langMap[language] || 'en-US';
+      
+      // Find appropriate voice for language
       const voices = window.speechSynthesis.getVoices();
-      const preferredVoice = voices.find(voice => 
-        voice.name.includes('Google') || 
-        voice.name.includes('Microsoft') ||
-        voice.lang.startsWith('en')
+      let selectedVoice;
+      
+      // Try to find voice matching the language
+      selectedVoice = voices.find(voice => 
+        voice.lang.startsWith(langMap[language] || 'en')
       );
       
-      if (preferredVoice) {
-        utterance.voice = preferredVoice;
+      // Fallback to any good quality voice
+      if (!selectedVoice) {
+        selectedVoice = voices.find(voice => 
+          voice.name.includes('Google') || 
+          voice.name.includes('Microsoft') ||
+          voice.name.includes('Neural')
+        );
+      }
+      
+      if (selectedVoice) {
+        utterance.voice = selectedVoice;
+        console.log('Using voice:', selectedVoice.name, 'for language:', language);
       }
       
       utterance.onstart = () => {
@@ -284,6 +349,35 @@ const WebCallModal = ({ isOpen, onClose, agent }) => {
       utterance.onend = () => {
         console.log('Speech ended');
         setWelcomePlaying(false);
+        
+        // Auto-start recording after AI finishes speaking (like a real phone call)
+        if (!testMode && mediaRecorderRef.current) {
+          setTimeout(() => {
+            console.log('Auto-starting recording after AI speech');
+            if (!isRecording && mediaRecorderRef.current?.state === 'inactive') {
+              try {
+                mediaRecorderRef.current.start(1000);
+                setIsRecording(true);
+                
+                // Auto-stop after 4 seconds
+                setTimeout(() => {
+                  if (mediaRecorderRef.current?.state === 'recording') {
+                    mediaRecorderRef.current.stop();
+                  }
+                }, 4000);
+              } catch (e) {
+                console.log('Could not auto-start recording:', e);
+              }
+            }
+          }, 500);
+        }
+        
+        // Notify backend that speech is done
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({
+            type: 'speech_ended'
+          }));
+        }
       };
       
       utterance.onerror = (error) => {
@@ -401,7 +495,7 @@ const WebCallModal = ({ isOpen, onClose, agent }) => {
                     ) : (
                       <MicrophoneIcon className="h-5 w-5" />
                     )}
-                    {welcomePlaying ? 'AI Speaking...' : (isRecording ? 'Listening...' : 'Click to Speak')}
+                    {welcomePlaying ? '🗣️ Speaking...' : (isRecording ? '🎤 Listening...' : '📞 Ready to Listen')}
                   </Button>
                 )}
                 <Button onClick={stopCall} variant="outline">
@@ -417,10 +511,11 @@ const WebCallModal = ({ isOpen, onClose, agent }) => {
             {transcript.length === 0 ? (
               <p className="text-gray-500 text-center">
                 {isCallActive ? 
-                  (welcomePlaying ? 'Playing welcome message...' : 
-                   testMode ? 'Type a message to start the conversation...' : 
-                   'Click the microphone button to start speaking...') : 
-                  'Start a call to begin'}
+                  (welcomePlaying ? '📞 Agent is speaking...' : 
+                   testMode ? '💬 Type your message below...' : 
+                   isRecording ? '🎤 Listening to you...' :
+                   '📞 Call connected - speak when ready') : 
+                  '📞 Click "Start Call" to begin'}
               </p>
             ) : (
               <div className="space-y-2">

@@ -13,7 +13,10 @@ import {
   PuzzlePieceIcon,
   CogIcon,
   ClockIcon,
-  ArrowRightOnRectangleIcon
+  ArrowRightOnRectangleIcon,
+  BeakerIcon,
+  ChatBubbleLeftRightIcon,
+  CpuChipIcon
 } from '@heroicons/react/24/outline';
 
 const Layout = ({ children }) => {
@@ -30,6 +33,9 @@ const Layout = ({ children }) => {
     { name: 'Call History', href: '/call-history', icon: ClockIcon },
     { name: 'Campaigns', href: '/campaigns', icon: PhoneIcon },
     { name: 'Analytics', href: '/analytics', icon: ChartBarIcon },
+    { name: 'Test Providers', href: '/test-providers', icon: BeakerIcon },
+    { name: 'Chat Test', href: '/chat-test', icon: ChatBubbleLeftRightIcon },
+    { name: 'LLM Test', href: '/llm-test', icon: CpuChipIcon },
     { name: 'Settings', href: '/settings', icon: CogIcon },
   ];
 

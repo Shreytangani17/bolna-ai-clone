@@ -22,6 +22,43 @@ router.get('/templates', (req, res) => {
   res.json({ templates: {} });
 });
 
+// GET /api/agent/providers
+router.get('/providers', (req, res) => {
+  const LLMService = require('../services/LLMService');
+  
+  res.json({
+    success: true,
+    providers: {
+      llm: LLMService.getAvailableProviders(),
+      models: {
+        openai: ['gpt-4', 'gpt-4-turbo', 'gpt-3.5-turbo'],
+        anthropic: ['claude-3-opus', 'claude-3-sonnet', 'claude-3-haiku'],
+        gemini: ['gemini-pro', 'gemini-pro-vision'],
+        mistral: ['mistral-large', 'mistral-medium', 'mistral-small'],
+        groq: ['llama2-70b-4096', 'mixtral-8x7b-32768'],
+        meta: ['llama-2-70b', 'llama-2-13b', 'llama-2-7b']
+      },
+      voices: {
+        openai: ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'],
+        elevenlabs: ['Rachel', 'Domi', 'Bella', 'Antoni', 'Elli', 'Josh'],
+        azure: ['en-US-JennyNeural', 'en-US-GuyNeural', 'en-US-AriaNeural']
+      },
+      languages: [
+        { code: 'en', name: 'English' },
+        { code: 'es', name: 'Spanish' },
+        { code: 'fr', name: 'French' },
+        { code: 'de', name: 'German' },
+        { code: 'it', name: 'Italian' },
+        { code: 'pt', name: 'Portuguese' },
+        { code: 'hi', name: 'Hindi' },
+        { code: 'ja', name: 'Japanese' },
+        { code: 'ko', name: 'Korean' },
+        { code: 'zh', name: 'Chinese' }
+      ]
+    }
+  });
+});
+
 // POST /api/agent/create
 router.post('/create', (req, res) => {
   console.log('Creating agent with data:', req.body);
@@ -36,8 +73,18 @@ router.post('/create', (req, res) => {
       welcomeMessage: req.body.welcomeMessage || 'Hello!',
       voice: req.body.voice || 'alloy',
       language: req.body.language || 'en',
-      providers: req.body.providers || {},
-      settings: req.body.settings || {}
+      model: req.body.model || 'gpt-3.5-turbo',
+      providers: req.body.providers || {
+        llm: 'openai',
+        tts: 'openai',
+        asr: 'deepgram',
+        telephony: 'twilio'
+      },
+      settings: req.body.settings || {
+        maxCallDuration: 300,
+        silenceTimeout: 30,
+        interruptible: true
+      }
     };
     
     console.log('Agent data prepared:', agentData);
